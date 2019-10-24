@@ -1,0 +1,120 @@
+from pystan import StanModel
+
+
+model_input_re='''
+data {
+
+    int<lower=1> Ntrials;
+    int<lower=1> NxConditions;
+    int<lower=1> NxSubjects;
+    int Choice[NxSubjects, NxConditions, Ntrials];
+}
+
+parameters {
+  // Grand mean
+  real a0;
+
+  //Conditions
+  matrix[NxConditions,NxSubjects] aWaS;
+  vector[NxConditions] aW;
+  vector[NxSubjects] aS;
+
+  //Group level Prior variance
+  real<lower=0.01> sigma_subject;
+  real<lower=0.01> sigma_positive;
+  real<lower=0.01> sigma_neutral;
+  real<lower=0.01> sigma_negative;
+
+}
+
+transformed parameters {
+
+vector[NxSubjects] theta_neutral;
+vector[NxSubjects] theta_positive;
+vector[NxSubjects] theta_negative;
+
+// Translate to sum-to-zero deflections away from Grand Mean
+
+real b0;
+vector[NxSubjects] bSubjects;
+matrix[NxConditions,NxSubjects] bSubXCondition;
+
+// Mean predicted values (before logistic transform) per conditionXsubject cell
+
+matrix[NxConditions,NxSubjects] m;
+
+  // Convert parameters to sum-to-zero
+
+  for ( u in 1:NxConditions){
+      for ( b in 1: NxSubjects){
+          m[u,b] = a0+aS[u]+aWaS[u,b];
+      }
+  }
+  // Grand mean (mean over matrix of all cells)
+  b0 = mean(m);
+
+  //Effects of Subject
+  for (h in 1:NxSubjects){bSubjects[h]=mean(m[1:NxConditions,h])-b0;}
+
+    // Interaction Effects
+  for (j in 1:NxConditions){
+      for (k in 1:NxSubjects){
+          {bSubXCondition[j,k]=m[j,k]-(b0+bSubjects[k]);}
+     }
+  }
+
+
+
+for (k in 1:NxSubjects){
+        theta_neutral[k] = inv_logit(a0+aS[k]+aWaS[1,k]);
+        theta_positive[k] = inv_logit(a0+aS[k]+aWaS[2,k]);
+        theta_negative[k] = inv_logit(a0+aS[k]+aWaS[3,k]);
+
+    }
+}
+model {
+
+    sigma_subject ~ uniform(0.01,10);
+    sigma_neutral ~ uniform(0.01,10);
+    sigma_positive ~ uniform(0.01,10);
+    sigma_negative ~ uniform(0.01,10);
+    a0 ~ normal(0,10);
+
+    for ( j in 1:NxConditions ) { aW[j] ~ normal(0,10); }
+
+    for (k in 1:NxSubjects){
+
+        aS[k] ~ normal(0,sigma_subject);
+
+        for (i in 1:Ntrials) {
+
+            // Neutral condition choices
+            aWaS[1,k] ~ normal(aW[1],sigma_neutral);
+            Choice[k,1,i] ~ bernoulli(theta_neutral[k]);
+
+            // Positive condition choices
+            aWaS[2,k] ~ normal(aW[2],sigma_positive);
+            Choice[k,2,i] ~ bernoulli(theta_positive[k]);
+
+            // Negative condition choices
+            aWaS[3,k] ~ normal(aW[3],sigma_negative);
+            Choice[k,3,i] ~ bernoulli(theta_negative[k]);
+              }
+      }
+    }
+
+'''
+data_input = {
+              'Ntrials': 40, # trials per condition
+              'Choice':choice_data_r1,#choice data
+              'NxConditions':3,
+              'NxSubjects':13
+                    }
+
+controls={}
+controls['adapt_delta']=0.8
+controls['max_treedepth']=14
+
+model_fit_re = StanModel(model_code=model_input_re)
+fit_re = model_fit_re.sampling(data=data_input,iter=2000,control=controls)
+print(fit_re)

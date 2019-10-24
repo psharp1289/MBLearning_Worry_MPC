@@ -1,0 +1,134 @@
+from pystan import StanModel
+
+
+model_input='''
+data {
+
+    int<lower=1> Ntrials;
+    int<lower=1> NxConditions;
+    int<lower=1> NxSubjects;
+    int Choice[NxSubjects, NxConditions, Ntrials];
+}
+
+parameters {
+  // Grand mean
+  real a0;
+
+  //Conditions
+  vector[NxConditions] aW;
+  vector[NxSubjects] aS;
+
+  // Interaction condition X subject
+  // matrix[NxConditions,NxSubjects] aWaS;
+
+  //Group level Prior variance
+  real<lower=0.01> sigma_subject;
+  // real<lower=0.01> sigma_interaction;
+  real<lower=0.01> sigma_condition;
+
+
+}
+
+transformed parameters {
+
+vector[NxSubjects] theta_neutral;
+vector[NxSubjects] theta_cp;
+vector[NxSubjects] theta_rp;
+vector[NxSubjects] theta_rt;
+
+
+// Translate to sum-to-zero deflections away from Grand Mean
+real b0;
+vector[NxConditions] bConditions;
+vector[NxSubjects] bSubjects;
+// matrix[NxConditions,NxSubjects] bSubXCondition;
+
+
+
+// Mean predicted values (before logistic transform) per conditionXsubject cell
+
+matrix[NxConditions,NxSubjects] m;
+
+  // Convert parameters to sum-to-zero
+
+  for ( u in 1:NxConditions){
+      for ( b in 1: NxSubjects){
+          m[u,b] = a0+aW[u]+aS[b];
+      }
+  }
+  // Grand mean (mean over matrix of all cells)
+  b0 = mean(m);
+
+  //Effects of Condition (how average effect across subjects is different from Grand Mean)
+  for (j in 1:NxConditions){bConditions[j]=mean(m[j,1:NxSubjects])-b0;}
+
+  //Effects of Subject
+  for (h in 1:NxSubjects){bSubjects[h]=mean(m[1:NxConditions,h])-b0;}
+
+  // Interaction Effects
+  //for (j in 1:NxConditions){
+  //    for (k in 1:NxSubjects){
+  //        {bSubXCondition[j,k]=m[j,k]-(b0+bConditions[j]+bSubjects[k]);}
+  //   }
+ // }
+
+
+for (k in 1:NxSubjects){
+        theta_neutral[k] = inv_logit(a0+aW[1]+aS[k]);
+        theta_cp[k] = inv_logit(a0+aW[2]+aS[k]);
+        theta_rp[k] = inv_logit(a0+aW[3]+aS[k]);
+        theta_rt[k] = inv_logit(a0+aW[4]+aS[k]);
+
+    }
+}
+model {
+
+    sigma_subject ~ uniform(0.01,15);
+    // sigma_interaction ~ uniform(0.01,15);
+    sigma_condition ~ uniform(0.01,15);
+
+
+    a0 ~ normal(0,10);
+
+    for ( j in 1:NxConditions ) { aW[j] ~ normal(0,sigma_condition); }
+
+    for (k in 1:NxSubjects){
+
+        aS[k] ~ normal(0,sigma_subject);
+
+        for (i in 1:Ntrials) {
+
+            // Neutral condition choices
+            // aWaS[1,k] ~ normal(0,sigma_interaction);
+            Choice[k,1,i] ~ bernoulli(theta_neutral[k]);
+
+            // Positive-common choices
+            //aWaS[2,k] ~ normal(0,sigma_interaction);
+            Choice[k,2,i] ~ bernoulli(theta_cp[k]);
+
+            // Positive-rare choices
+            //aWaS[3,k] ~ normal(0,sigma_interaction);
+            Choice[k,3,i] ~ bernoulli(theta_rp[k]);
+
+            // Threatening-rare choices
+            //aWaS[4,k] ~ normal(0,sigma_interaction);
+            Choice[k,4,i] ~ bernoulli(theta_rt[k]);
+
+              }
+      }
+    }
+
+'''
+data_input = {
+              'Ntrials': 20, # trials per condition
+              'Choice':choice_data_no_sub_13,#choice data
+              'NxConditions':4,
+              'NxSubjects':13
+                    }
+
+# controls={}
+# controls['adapt_delta']=0.8
+
+model_fit = StanModel(model_code=model_input)
+fit_r2_no_interaction = model_fit.sampling(data=data_input,iter=2000)
+print(fit_r2_no_interaction)
