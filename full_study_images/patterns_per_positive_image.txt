@@ -1,0 +1,15 @@
+Positive images: Pattern upheld
+
+COMMON:
+rainbow - YES
+skydiving - NO
+nude - YES
+Dog - Yes
+Fireworks - Yes
+
+RARE:
+skydiving - NO
+nude - YES
+Dog - No
+Rainbow - Yes
+Fireworks - Yes
